@@ -1,5 +1,5 @@
 # XY-divergence
-*This repository contains SLiM v5.2 code to simulate inversion mediated XY chromosome dovergence.*
+*This repository contains SLiM v5.2 code to simulate two inversion-mediated evolutionary scenarios of XY sex determination.*
 
 ---
 
