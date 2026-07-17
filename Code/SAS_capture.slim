@@ -1,1 +1,225 @@
+initialize() {
+	initializeMutationRate(1e-8);
+	defineConstant("SDR_POS", 5000000);
+	defineConstant("invSize", 5000000);
+	defineConstant("inv_breakpoint1", asInteger(SDR_POS - invSize/2));
+	defineConstant("inv_breakpoint2", inv_breakpoint1 + invSize - 1);
+	defineConstant("inv_sites", c(inv_breakpoint1, inv_breakpoint2));
+	defineConstant("SAS_sites", c(3750000, 6250000));
+	defineConstant("SAS_sel", 0.1);
 
+	// Fixed cycle to save/load restart population
+	defineConstant("saveCycle", 10000);
+	
+	// Neutral mutation
+	initializeMutationType("m1", 0.5, "f", 0);
+	
+	// SDR
+	initializeMutationType("m2", 0.5, "f", 0);
+	m2.color = "blue";
+	
+	// Inversion marker
+	initializeMutationType("m3", 0.5, "f", 0.0);
+	m3.mutationStackPolicy = "f";
+	m3.convertToSubstitution = F;
+	m3.color = "red";
+	
+	// SAS markers
+	initializeMutationType("m4", 0.5, "f", 0);
+	m4.mutationStackPolicy = "f";
+	m4.convertToSubstitution = F;
+	m4.color = "green";
+	
+	// XY genomic region
+	initializeGenomicElementType("g1", m1, 1.0);
+	initializeGenomicElement(g1, 0, 9999999);
+	
+	initializeRecombinationRate(1e-9);
+}
+
+
+
+1 early() {
+	sim.addSubpop("p1", 1000);
+	defineConstant("simID", getSeed());
+}
+
+
+
+1 late() {
+	// introduce SDR (m2) and SAA (m4)
+	p1.individuals.haploidGenome1.addNewDrawnMutation(m2, SDR_POS);
+	p1.individuals.haploidGenome1.addNewDrawnMutation(m4, SAS_sites[0]);
+    p1.individuals.haploidGenome1.addNewDrawnMutation(m4, SAS_sites[1]);
+}
+
+
+
+mutationEffect(m4, p1)
+{
+    sY = SAS_sel; // beneficial
+    sX = (1.0/(1.0 + SAS_sel) - 1.0);   // deleterious
+
+	onG1 = individual.haploidGenome1.containsMutations(mut);
+	onG2 = individual.haploidGenome2.containsMutations(mut);
+
+	g1_isY = individual.haploidGenome1.containsMarkerMutation(m2, SDR_POS);
+	g2_isY = individual.haploidGenome2.containsMarkerMutation(m2, SDR_POS);
+
+    w = 1.0;
+
+    if (onG1)
+    {
+        if (g1_isY)
+            w = w * (1.0 + sY);
+        else
+            w = w * (1.0 + sX);
+    }
+
+    if (onG2)
+    {
+        if (g2_isY)
+            w = w * (1.0 + sY);
+        else
+            w = w * (1.0 + sX);
+    }
+
+    return w;
+}
+
+
+
+// Keep population XY at every generation
+2: modifyChild(p1)
+{
+	g1_hasY = (size(child.haploidGenome1.mutationsOfType(m2)) > 0);
+	g2_hasY = (size(child.haploidGenome2.mutationsOfType(m2)) > 0);
+	
+	// Reject XX and YY
+	if (g1_hasY == g2_hasY) {
+		return F;}
+	return T;
+}
+
+
+
+// Introduce Y-linked inversion
+10000 late() {
+	// Save state for restarts if inversion is lost
+	sim.outputFull("slim_" + simID + "_" + saveCycle + ".txt");
+	
+	ind = sample(p1.individuals, 1);
+	g1_hasY = (size(ind.haploidGenome1.mutationsOfType(m2)) > 0);
+	Yg = g1_hasY ? ind.haploidGenome1 else ind.haploidGenome2;
+	
+	// Tag inversion on Y at both breakpoints
+	for (pos in inv_sites)
+		Yg.addNewDrawnMutation(m3, pos);
+}
+
+
+
+// If inversion lost, restart and reintroduce in one individual on Y
+10000:100000 late() {
+	hs = p1.individuals.haplosomes[!p1.individuals.haplosomes.isNullHaplosome];
+	nInv = sum(hs.containsMarkerMutation(m3, inv_breakpoint1));
+	
+	if (nInv == 0) {
+		cat(simID + ": LOST – RESTARTING\n");
+		// Read from the known saved filename using saveCycle
+		sim.readFromPopulationFile("slim_" + simID + "_" + saveCycle + ".txt");
+		getSeed();
+		
+		ind = sample(p1.individuals, 1);
+		hs_ind = ind.haplosomes[!ind.haplosomes.isNullHaplosome];
+		h1 = hs_ind[0];
+		h2 = hs_ind[1];
+		
+		h1_isY = (size(h1.mutationsOfType(m2)) > 0);
+		h2_isY = (size(h2.mutationsOfType(m2)) > 0);
+		
+		Yh = h1_isY ? h1 else h2;
+		for (pos in inv_sites)
+			Yh.addNewDrawnMutation(m3, pos);
+	}
+}
+
+
+// Recombination callback
+recombination() {
+	gm1 = individual.haploidGenome1.containsMarkerMutation(m3, inv_breakpoint1); // T if marker present, F if not
+	gm2 = individual.haploidGenome2.containsMarkerMutation(m3, inv_breakpoint1);
+	if (!(gm1 | gm2)) { // if not OR --> both are F
+		//  Homozygote non-inverted
+		return F;   // no change to breakpoints
+	}
+	inInv = (breakpoints > inv_breakpoint1) & (breakpoints <= inv_breakpoint2);
+	if (sum(inInv) % 2 == 0) {  // allowing for even number of breakpoints within inversion
+		return F;
+	}
+	if (gm1 & gm2) {
+		// Homozygote inverted
+		left = (breakpoints == inv_breakpoint1);
+		right = (breakpoints == inv_breakpoint2 + 1);
+		breakpoints = sort(c(breakpoints[!(left | right)],
+			c(inv_breakpoint1, inv_breakpoint2 + 1)[c(sum(left) == 0, sum(right) == 0)])); // endpoints get added only if missing, and if they were present multiple times they were removed and then reintroduced as needed
+		return T;
+	} else {
+		// Heterozygote inverted: resample to get an even # of breakpoints
+		// This is *recursive*: it calls this recombination callback again!
+		breakpoints = sim.chromosome.drawBreakpoints(individual);
+	}
+	return T;
+}
+
+
+
+// Sample individuals, calculate and output Fst between X and Y
+10000:100000 late() {
+
+	if (sim.cycle % 100 == 0) {
+	
+	inds = p1.individuals;
+	sampled = sample(inds, 200);
+	
+	x_haps = c();
+	y_haps = c();
+	
+	for (ind in sampled) {
+		hs = ind.haplosomes[!ind.haplosomes.isNullHaplosome];
+		h1 = hs[0];
+		h2 = hs[1];
+		
+		h1_isY = (size(h1.mutationsOfType(m2)) > 0);
+		h2_isY = (size(h2.mutationsOfType(m2)) > 0);
+		
+		if (h1_isY == h2_isY) 
+			next;
+		
+		if (h1_isY) {
+			y_haps = c(y_haps, h1);
+			x_haps = c(x_haps, h2);
+		} else {
+			y_haps = c(y_haps, h2);
+			x_haps = c(x_haps, h1);
+		}
+	}
+	
+	winSize = 10000;
+	L = sim.chromosome.lastPosition + 1; // eidos zero based
+	allMuts = sim.mutationsOfType(m1);
+	
+	out = "chrom\tstart\tend\tfst\n"; // output table header
+	for (wStart in seq(0, L-1, by=winSize)) {
+		wEnd = min(L-1, wStart + winSize - 1);
+		fst = calcFST(x_haps, y_haps, allMuts, wStart, wEnd);
+		out = out + "1\t" + wStart + "\t" + wEnd + "\t" + fst + "\n";
+	}
+	
+	writeFile("fst_XY_" + simID + "_" + sim.cycle + ".tsv", out);
+	}
+	// Only finish simulation at the final checkpoint to allow all outputs
+	if (sim.cycle == 100000) {
+		sim.simulationFinished();
+	}
+}
