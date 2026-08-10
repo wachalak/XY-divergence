@@ -1,12 +1,14 @@
 initialize() {
 	initializeMutationRate(1e-8);
-	
 	defineConstant("SDR_POS", 5000000);
 	defineConstant("invSize", 5000000);
 	defineConstant("inv_breakpoint1", asInteger(SDR_POS - invSize/2));
 	defineConstant("inv_breakpoint2", inv_breakpoint1 + invSize - 1);
 	defineConstant("inv_sites", c(inv_breakpoint1, inv_breakpoint2));
 	defineConstant("inv_sel", 0.1);
+
+	// Fixed cycle to save/load restart population
+	defineConstant("saveCycle", 10000);
 	
 	// Neutral mutation
 	initializeMutationType("m1", 0.5, "f", 0.0);
@@ -16,19 +18,17 @@ initialize() {
 	m2.color = "blue";
 	m2.mutationStackPolicy = "f";
 	
-	// Inversion 
+	// Inversion marker
 	initializeMutationType("m3", 0.5, "f", 0.0);
 	m3.mutationStackPolicy = "f";
 	m3.convertToSubstitution = F;
 	m3.color = "red";
-	
+
+    // XY genomic region
 	initializeGenomicElementType("g1", m1, 1.0);
 	initializeGenomicElement(g1, 0, 9999999);
 	
-	initializeRecombinationRate(1e-7);
-
-	// Fixed cycle to save/load restart population
-	defineConstant("saveCycle", 10000);
+	initializeRecombinationRate(1e-9);
 }
 
 
@@ -74,14 +74,15 @@ mutationEffect(m3, p1)
 
 
 
-// Add SDR in genome of one individual
+// Add SDR (m2) in genome of one individual
 1 late() {
 	p1.individuals.haploidGenome1.addNewDrawnMutation(m2, SDR_POS);
 }
 
 
 
-// Keep population strictly XY at every generation
+// Keep population XY at every generation
+// Y is defined by presence of SDR, X by the absence of SDR
 2: modifyChild(p1)
 {
 	g1_hasY = (size(child.haploidGenome1.mutationsOfType(m2)) > 0);
@@ -104,7 +105,7 @@ mutationEffect(m3, p1)
 	g1_hasY = (size(ind.haploidGenome1.mutationsOfType(m2)) > 0); // returns T or F 
 	Yg = g1_hasY ? ind.haploidGenome1 else ind.haploidGenome2;
 	
-	// Add inversion on Y at both breakpoints in one individual
+	// Tag inversion on Y at both breakpoints
 	for (pos in inv_sites)
 		Yg.addNewDrawnMutation(m3, pos);
 }
