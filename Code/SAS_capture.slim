@@ -12,11 +12,12 @@ initialize() {
 	defineConstant("saveCycle", 10000);
 	
 	// Neutral mutation
-	initializeMutationType("m1", 0.5, "f", 0);
+	initializeMutationType("m1", 0.5, "f", 0.0);
 	
 	// SDR
-	initializeMutationType("m2", 0.5, "f", 0);
+	initializeMutationType("m2", 0.5, "f", 0.0);
 	m2.color = "blue";
+	m2.mutationStackPolicy = "f";
 	
 	// Inversion marker
 	initializeMutationType("m3", 0.5, "f", 0.0);
@@ -35,22 +36,6 @@ initialize() {
 	initializeGenomicElement(g1, 0, 9999999);
 	
 	initializeRecombinationRate(1e-9);
-}
-
-
-
-1 early() {
-	sim.addSubpop("p1", 1000);
-	defineConstant("simID", getSeed());
-}
-
-
-
-1 late() {
-	// introduce SDR (m2) and SAA (m4)
-	p1.individuals.haploidGenome1.addNewDrawnMutation(m2, SDR_POS);
-	p1.individuals.haploidGenome1.addNewDrawnMutation(m4, SAS_sites[0]);
-    p1.individuals.haploidGenome1.addNewDrawnMutation(m4, SAS_sites[1]);
 }
 
 
@@ -89,7 +74,24 @@ mutationEffect(m4, p1)
 
 
 
+1 early() {
+	sim.addSubpop("p1", 1000);
+	defineConstant("simID", getSeed());
+}
+
+
+
+// Introduce SDR (m2) and SAA (m4) in genome of one individual
+1 late() {
+	p1.individuals.haploidGenome1.addNewDrawnMutation(m2, SDR_POS);
+	p1.individuals.haploidGenome1.addNewDrawnMutation(m4, SAS_sites[0]);
+    p1.individuals.haploidGenome1.addNewDrawnMutation(m4, SAS_sites[1]);
+}
+
+
+
 // Keep population XY at every generation
+// Y is defined by presence of SDR, X by the absence of SDR
 2: modifyChild(p1)
 {
 	g1_hasY = (size(child.haploidGenome1.mutationsOfType(m2)) > 0);
@@ -109,7 +111,7 @@ mutationEffect(m4, p1)
 	sim.outputFull("slim_" + simID + "_" + saveCycle + ".txt");
 	
 	ind = sample(p1.individuals, 1);
-	g1_hasY = (size(ind.haploidGenome1.mutationsOfType(m2)) > 0);
+	g1_hasY = (size(ind.haploidGenome1.mutationsOfType(m2)) > 0); // returns T or F
 	Yg = g1_hasY ? ind.haploidGenome1 else ind.haploidGenome2;
 	
 	// Tag inversion on Y at both breakpoints
@@ -218,8 +220,8 @@ recombination() {
 	
 	writeFile("fst_XY_" + simID + "_" + sim.cycle + ".tsv", out);
 	}
-	// Only finish simulation at the final checkpoint to allow all outputs
-	if (sim.cycle == 100000) {
-		sim.simulationFinished();
-	}
+}
+
+100000 late() {
+	sim.simulationFinished();
 }
