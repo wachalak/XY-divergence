@@ -3,13 +3,6 @@
 
 ---
 
-## Table of Contents
-1. [Usage](#usage)
-2. [Contact](#contact)
-3. [License](#license)
-
----
-
 ## Usage
 To clone the repo use `git clone https://github.com/wachalak/XY-divergence.git`
 
